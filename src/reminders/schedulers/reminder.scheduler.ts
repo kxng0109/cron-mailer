@@ -11,9 +11,10 @@ export class ReminderScheduler {
 		private readonly mailerService: MailerService,
 	) {}
 
-	async handleSend(id: number, to: string, message, subject?: string) {
+	async handleSend(id: number, to: string, message, subject:string) {
 		const info = await this.mailerService.sendMail(to, message, subject);
-		if (!info) return;
+		if (!info) return this.logger.error(`An error occurred while sending mail with id: ${id}.`);
+
 		const { rejected, messageId } = info;
 		if (rejected.length) {
 			this.logger.error(
@@ -26,7 +27,7 @@ export class ReminderScheduler {
 				where: { id },
 			});
 		}
-		
+
 		this.logger.log(
 			`Email with subject "${subject || 'no subject'}" sent to ${to} with id: ${messageId}`,
 		);
@@ -42,12 +43,13 @@ export class ReminderScheduler {
 		if (!pendingReminders.length) {
 			return this.logger.log('No pending reminders');
 		}
+
 		this.logger.log(`${pendingReminders.length || 0} pending reminders found.`);
 		pendingReminders.forEach((reminder) => {
-			const { sendAt, status, id, message, email } = reminder;
+			const { sendAt, status, id, message, email, subject } = reminder;
 			const now = new Date();
 			if (sendAt <= now && status !== 'completed') {
-				this.handleSend(id, email, message);
+				this.handleSend(id, email, message, subject);
 			}
 		});
 	}

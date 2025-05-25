@@ -4,7 +4,7 @@ import {
     IsNotEmpty,
     IsOptional,
     IsString,
-    MinDate
+    MinDate,
 } from 'class-validator';
 
 export class CreateReminderDto {
@@ -16,9 +16,13 @@ export class CreateReminderDto {
 	@IsOptional()
 	message?: string;
 
+	@IsString()
+	@IsOptional()
+	subject?: string;
+
 	@IsDate()
 	@MinDate(() => new Date(), {
-		message: "Date for sendAt can not be less than current date.",
+		message: 'Date for sendAt can not be less than current date.',
 	})
 	@IsNotEmpty()
 	sendAt: Date;

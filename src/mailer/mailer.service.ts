@@ -22,8 +22,8 @@ export class MailerService {
 
 	async sendMail(
 		to: string,
-		message: string | 'No body.',
-		subject?: string | 'Your reminder from Cron-Mailer',
+		message: string,
+		subject: string,
 	) {
 		try {
 			const transporter = this.transporter();
