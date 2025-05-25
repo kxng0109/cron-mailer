@@ -1,6 +1,13 @@
-import { IsDate, IsEmail, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import {
+    IsDate,
+    IsEmail,
+    IsNotEmpty,
+    IsOptional,
+    IsString,
+    MinDate
+} from 'class-validator';
 
-export class CreateReminderDto{
+export class CreateReminderDto {
 	@IsEmail()
 	@IsNotEmpty()
 	email: string;
@@ -10,6 +17,9 @@ export class CreateReminderDto{
 	message?: string;
 
 	@IsDate()
+	@MinDate(() => new Date(), {
+		message: "Date for sendAt can not be less than current date.",
+	})
 	@IsNotEmpty()
-	sendAt: Date; 
+	sendAt: Date;
 }
