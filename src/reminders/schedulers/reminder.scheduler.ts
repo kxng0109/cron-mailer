@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
+import { Reminder as ReminderModel } from 'generated/prisma';
 import { MailerService } from 'src/mailer/mailer.service';
 import { RemindersService } from '../reminders.service';
 
@@ -9,11 +11,15 @@ export class ReminderScheduler {
 	constructor(
 		private readonly reminderService: RemindersService,
 		private readonly mailerService: MailerService,
+		private schedulerRegistery: SchedulerRegistry,
 	) {}
 
-	async handleSend(id: number, to: string, message, subject:string) {
+	async handleSend(id: number, to: string, message, subject: string) {
 		const info = await this.mailerService.sendMail(to, message, subject);
-		if (!info) return this.logger.error(`An error occurred while sending mail with id: ${id}.`);
+		if (!info)
+			return this.logger.error(
+				`An error occurred while sending mail with id: ${id}.`,
+			);
 
 		const { rejected, messageId } = info;
 		if (rejected.length) {
@@ -37,7 +43,7 @@ export class ReminderScheduler {
 		});
 	}
 
-	@Cron(CronExpression.EVERY_10_SECONDS)
+	// @Cron(CronExpression.EVERY_10_SECONDS)
 	async checkReminder() {
 		const pendingReminders = await this.reminderService.getPendingReminders();
 		if (!pendingReminders.length) {
@@ -45,12 +51,88 @@ export class ReminderScheduler {
 		}
 
 		this.logger.log(`${pendingReminders.length || 0} pending reminders found.`);
-		pendingReminders.forEach((reminder) => {
+
+		const pendingFutureReminders = pendingReminders.filter(
+			(reminder) => reminder.sendAt.getTime() - Date.now() > 0,
+		);
+
+		const pendingPastReminders = pendingReminders.filter(
+			(reminder) => reminder.sendAt.getTime() - Date.now() <= 0,
+		);
+
+		pendingPastReminders.forEach((reminder) => {
 			const { sendAt, status, id, message, email, subject } = reminder;
 			const now = new Date();
 			if (sendAt <= now && status !== 'completed') {
 				this.handleSend(id, email, message, subject);
 			}
 		});
+
+		pendingFutureReminders.forEach((reminder) => {
+			this.addTimeout(reminder);
+		});
+	}
+
+	createCron(givenDate: Date) {
+		const date = givenDate.getUTCDate();
+		const month = givenDate.getUTCMonth() + 1;
+		const hour = givenDate.getUTCHours();
+		const minute = givenDate.getUTCMinutes();
+		const second = givenDate.getUTCSeconds();
+		const dayOfTheWeek = '*';
+		let cronArray: any[] = [];
+		[second, minute, hour, date, month, dayOfTheWeek].forEach((item) => {
+			if (item) {
+				cronArray.push(item);
+			} else {
+				cronArray.push('*');
+			}
+		});
+		return cronArray.join(' ');
+	}
+
+	async addCronJob(reminder: ReminderModel, cron: string, time: string) {
+		const { id, email, message, subject } = reminder;
+		const job = new CronJob(cron, () => {
+			this.handleSend(id, email, message, subject);
+		});
+
+		const name = id.toString();
+		this.schedulerRegistery.addCronJob(name, job);
+		job.start();
+		this.logger.log(`Reminder set at ${time} for email with id: ${name}`);
+	}
+
+	checkTimeout(name: string): boolean {
+		try {
+			this.schedulerRegistery.getTimeout(name);
+			return true;
+		} catch (err) {
+			return false;
+		}
+	}
+
+	addTimeout(reminder: ReminderModel) {
+		const { id, email, message, subject, sendAt } = reminder;
+		const name = `Reminder - ${id.toString()}`;
+
+		//If the timeout exists, then don't create it.
+		if (this.checkTimeout(name)) return;
+
+		const delay = sendAt.getTime() - Date.now();
+		if (delay <= 0) {
+			return this.logger.error(
+				`Timeout with id: ${id} could not be added. Time given is in the past.`,
+			);
+		}
+
+		const timeout = setTimeout(() => {
+			this.handleSend(id, email, message, subject);
+		}, delay);
+		this.schedulerRegistery.addTimeout(name, timeout);
+
+		this.logger.log(
+			`Reminder set at ${sendAt.toLocaleString()} for email with id: ${name}`,
+		);
 	}
 }

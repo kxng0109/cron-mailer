@@ -8,11 +8,9 @@ export class RemindersService {
 	constructor(private readonly prismaService: PrismaService) {}
 
 	async createReminder(data: Prisma.ReminderCreateInput): Promise<Reminder> {
-		const reminder = await this.prismaService.reminder.create({
+		return await this.prismaService.reminder.create({
 			data,
 		});
-		reminder && this.logger.log(`Reminder set for ${reminder.sendAt}.`);
-		return reminder;
 	}
 
 	async getPendingReminders(): Promise<Reminder[]> {
