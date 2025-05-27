@@ -1,10 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma, Reminder } from 'generated/prisma';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class RemindersService {
-	private readonly logger = new Logger(RemindersService.name);
 	constructor(private readonly prismaService: PrismaService) {}
 
 	async createReminder(data: Prisma.ReminderCreateInput): Promise<Reminder> {

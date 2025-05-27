@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+	Injectable,
+	InternalServerErrorException,
+	Logger,
+} from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { Reminder as ReminderModel } from 'generated/prisma';
@@ -21,7 +25,7 @@ export class ReminderScheduler {
 				`An error occurred while sending mail with id: ${id}.`,
 			);
 
-		const { rejected, messageId } = info;
+		const { accepted, rejected, messageId } = info;
 		if (rejected.length) {
 			this.logger.error(
 				`Email with address ${to} could not be sent because it was rejected by the server.`,
@@ -32,22 +36,26 @@ export class ReminderScheduler {
 				},
 				where: { id },
 			});
+		} else if (accepted.length) {
+			this.logger.log(
+				`Email with subject "${subject || 'no subject'}" sent to ${to} with id: ${messageId}`,
+			);
+			await this.reminderService.updateReminderStatus({
+				data: { status: 'completed' },
+				where: { id },
+			});
+		} else {
+			this.logger.error(
+				`An error occurred. Did not receive keys accepted and rejected for email with id: ${messageId}`,
+			);
 		}
-
-		this.logger.log(
-			`Email with subject "${subject || 'no subject'}" sent to ${to} with id: ${messageId}`,
-		);
-		await this.reminderService.updateReminderStatus({
-			data: { status: 'completed' },
-			where: { id },
-		});
 	}
 
 	// @Cron(CronExpression.EVERY_10_SECONDS)
 	async checkReminder() {
 		const pendingReminders = await this.reminderService.getPendingReminders();
 		if (!pendingReminders.length) {
-			return this.logger.log('No pending reminders');
+			return this.logger.log('No pending reminders.');
 		}
 
 		this.logger.log(`${pendingReminders.length || 0} pending reminders found.`);
@@ -74,15 +82,15 @@ export class ReminderScheduler {
 	}
 
 	createCron(givenDate: Date) {
-		const date = givenDate.getUTCDate();
-		const month = givenDate.getUTCMonth() + 1;
-		const hour = givenDate.getUTCHours();
-		const minute = givenDate.getUTCMinutes();
-		const second = givenDate.getUTCSeconds();
+		const date = givenDate.getDate();
+		const month = givenDate.getMonth() + 1;
+		const hour = givenDate.getHours();
+		const minute = givenDate.getMinutes();
+		const second = givenDate.getSeconds();
 		const dayOfTheWeek = '*';
 		let cronArray: any[] = [];
 		[second, minute, hour, date, month, dayOfTheWeek].forEach((item) => {
-			if (item) {
+			if (item || item == 0) {
 				cronArray.push(item);
 			} else {
 				cronArray.push('*');
@@ -91,16 +99,22 @@ export class ReminderScheduler {
 		return cronArray.join(' ');
 	}
 
-	async addCronJob(reminder: ReminderModel, cron: string, time: string) {
-		const { id, email, message, subject } = reminder;
+	logReminderCreation = (time: Date | string, emailID: number) => {
+		this.logger.log(`Reminder set at ${time} for email with id: ${emailID}`);
+	};
+
+	async addCronJob(reminder: ReminderModel, cron: string) {
+		const { id, email, message, subject, sendAt } = reminder;
+		const name = id.toString();
+
 		const job = new CronJob(cron, () => {
 			this.handleSend(id, email, message, subject);
+			this.schedulerRegistery.deleteCronJob(name);
 		});
 
-		const name = id.toString();
 		this.schedulerRegistery.addCronJob(name, job);
 		job.start();
-		this.logger.log(`Reminder set at ${time} for email with id: ${name}`);
+		this.logReminderCreation(sendAt.toLocaleString(), id);
 	}
 
 	checkTimeout(name: string): boolean {
@@ -114,10 +128,10 @@ export class ReminderScheduler {
 
 	addTimeout(reminder: ReminderModel) {
 		const { id, email, message, subject, sendAt } = reminder;
-		const name = `Reminder - ${id.toString()}`;
+		const timeoutName = `Reminder - ${id.toString()}`;
 
 		//If the timeout exists, then don't create it.
-		if (this.checkTimeout(name)) return;
+		if (this.checkTimeout(timeoutName)) return;
 
 		const delay = sendAt.getTime() - Date.now();
 		if (delay <= 0) {
@@ -126,13 +140,12 @@ export class ReminderScheduler {
 			);
 		}
 
+		//Timeout logic
 		const timeout = setTimeout(() => {
 			this.handleSend(id, email, message, subject);
+			this.schedulerRegistery.deleteTimeout(timeoutName);
 		}, delay);
-		this.schedulerRegistery.addTimeout(name, timeout);
-
-		this.logger.log(
-			`Reminder set at ${sendAt.toLocaleString()} for email with id: ${name}`,
-		);
+		this.schedulerRegistery.addTimeout(timeoutName, timeout);
+		this.logReminderCreation(sendAt.toLocaleString(), id);
 	}
 }

@@ -27,20 +27,16 @@ export class MailerService {
 	) {
 		try {
 			const transporter = this.transporter();
-			const info = await transporter.sendMail({
+			return await transporter.sendMail({
 				from: this.configService.get<string>('MAIL_USERNAME'),
 				to,
 				subject,
 				text: message,
 			});
-
-			this.logger.log(
-				`Email with subject "${subject || 'no subject'}" sent to ${to} with id: ${info.messageId}`,
-			);
-			return info;
+			
 		} catch (err) {
 			this.logger.error(err);
-			// throw err;
+			throw err;
 		}
 	}
 }
