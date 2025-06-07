@@ -26,9 +26,13 @@ export class RemindersManagerService {
 	}
 
 	async cancelReminder(id: number){
+		//Delete it first and return the reminder (if it exists)
+		//It throws an error if it doesn't exists
 		const reminder = await this.remindersService.cancelReminder({id});
 		if(reminder.pattern === Pattern.once){
-			
+			this.reminderScheduler.deleteOneOff(reminder);
+		}else{
+			this.reminderScheduler.deleteRecurring(reminder)
 		}
 	}
 }

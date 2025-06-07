@@ -6,8 +6,8 @@ import {
 	IsDateString,
 	IsEmail,
 	IsEnum,
-	IsIn,
 	IsInt,
+	IsISO8601,
 	IsNotEmpty,
 	IsOptional,
 	IsString,
@@ -32,20 +32,24 @@ export class CreateReminderDto {
 	@IsOptional()
 	subject?: string;
 
-	@ValidateIf((o) => o.sendAt == null)
-	@IsEnum(Pattern)
-	pattern?: Pattern;
+	@ValidateIf((o) => o.sendAt == null || o.pattern)
+	@IsEnum(Pattern, {
+		message: 'pattern must be one of the allowed enum values.',
+	})
+	@IsOptional()
+	pattern?: Pattern = Pattern.once;
 
 	@ValidateIf((o) => o.pattern === Pattern.once)
 	@IsNotEmpty({ message: 'sendAt must be provided for one-off reminders' })
-	@IsDateString({}, { message: 'sendAt must be a valid ISO date string' })
+	@IsDate({ message: "sendAt must be a valid ISO date string with seconds"})
 	@MinDate(() => new Date(), {
 		message: 'Date for sendAt can not be less than current date.',
 	})
-	@IsNotEmpty()
 	sendAt?: Date;
 
-	@ValidateIf((o) => o.pattern !== Pattern.once)
+	@ValidateIf(
+		(o) => o.pattern !== Pattern.once && o.pattern !== Pattern.every_n_minutes,
+	)
 	@IsNotEmpty()
 	@Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, {
 		message: 'time must be in HH:mm (00:00–23:59) format.',
@@ -71,10 +75,8 @@ export class CreateReminderDto {
 	@ArrayMinSize(1, {
 		message: 'At least a value for daysOfWeek is required.',
 	})
-	@Matches(/^[0-6]/, {
-		each: true,
-		message: 'Each dayOfWeek must be 0 (Sunday) through 6 (Saturday).',
-	})
+	@Min(0, { each: true, message: "daysOfWeek must be between 0 and 6."})
+	@Max(6, { each: true, message: "daysOfWeek must be between 0 and 6."})
 	daysOfWeek?: number[];
 
 	@ValidateIf(
