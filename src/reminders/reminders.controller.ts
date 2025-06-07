@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { Reminder as ReminderModel } from 'generated/prisma';
-import { CreateReminderDto } from './dto/create-reminder.dto';
+import { CreateReminderDto } from './dto/';
 import { RemindersManagerService } from './reminders-manager.service';
 import { RemindersService } from './reminders.service';
 
@@ -24,5 +24,10 @@ export class RemindersController {
   async getFuturePendingReminders(): Promise<ReminderModel[]> {
     const pendingReminders = await this.remindersService.getPendingReminders();
     return pendingReminders.filter((reminder) => reminder.sendAt > new Date());
+  }
+
+  @Delete(":id")
+  async cancelReminder(@Param("id", ParseIntPipe) id: number){
+    return this.remindersManagerService.cancelReminder(id);
   }
 }

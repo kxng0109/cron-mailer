@@ -1,12 +1,9 @@
-import {
-	Injectable,
-	InternalServerErrorException,
-	Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
-import { Reminder as ReminderModel } from 'generated/prisma';
+import { Pattern, Reminder as ReminderModel } from 'generated/prisma';
 import { MailerService } from 'src/mailer/mailer.service';
+import { MAX_TIMEOUT } from '../constants';
 import { RemindersService } from '../reminders.service';
 
 @Injectable()
@@ -51,7 +48,6 @@ export class ReminderScheduler {
 		}
 	}
 
-	// @Cron(CronExpression.EVERY_10_SECONDS)
 	async checkReminder() {
 		const pendingReminders = await this.reminderService.getPendingReminders();
 		if (!pendingReminders.length) {
@@ -81,43 +77,75 @@ export class ReminderScheduler {
 		});
 	}
 
-	createCron(givenDate: Date) {
-		const date = givenDate.getDate();
-		const month = givenDate.getMonth() + 1;
-		const hour = givenDate.getHours();
-		const minute = givenDate.getMinutes();
-		const second = givenDate.getSeconds();
-		const dayOfTheWeek = '*';
-		let cronArray: any[] = [];
-		[second, minute, hour, date, month, dayOfTheWeek].forEach((item) => {
-			if (item || item == 0) {
-				cronArray.push(item);
-			} else {
-				cronArray.push('*');
-			}
-		});
-		return cronArray.join(' ');
+	buildCronExpression(pattern: string, reminder: ReminderModel): string {
+		const {
+			sendAt: givenDate,
+			dayOfMonth,
+			daysOfWeek,
+			interval,
+			month,
+			time,
+		} = reminder;
+		if (!givenDate) throw new BadRequestException('sendAt is not defined.');
+		if (!daysOfWeek)
+			throw new BadRequestException('daysOfWeek is not defined.');
+
+		let newTime = time?.split(':').reverse().join(' ');
+		let cron: string;
+
+		switch (pattern) {
+			case Pattern.once:
+				const date = givenDate.getDate();
+				const genMonth = givenDate.getMonth() + 1;
+				const hour = givenDate.getHours();
+				const minute = givenDate.getMinutes();
+				const second = givenDate.getSeconds();
+				const dayOfTheWeek = '*';
+				cron = [second, minute, hour, date, genMonth, dayOfTheWeek]
+					.map((item) => {
+						item || item == 0 ? item : '*';
+					})
+					.join(' ');
+				break;
+			case Pattern.daily:
+				cron = `${newTime} * * *`;
+				break;
+			case Pattern.weekly:
+				cron = `${newTime} * * ${daysOfWeek.toString()}`;
+				break;
+			case Pattern.every_n_minutes:
+				cron = `*/${interval || newTime} * * * *`;
+				break;
+			case Pattern.monthly:
+				cron = `${newTime} ${dayOfMonth} * *`;
+				break;
+			case Pattern.yearly:
+				cron = `${newTime || '00:00'} ${dayOfMonth || '01'} ${month} *`;
+				break;
+			default:
+				throw new BadRequestException('Pattern must be defined.');
+		}
+		return cron;
 	}
 
-	logReminderCreation = (time: Date | string, emailID: number) => {
-		this.logger.log(`Reminder set at ${time} for email with id: ${emailID}`);
+	logReminderCreation = (
+		time: Date | string,
+		pattern: string,
+		emailID: number,
+	) => {
+		if (!time || time === '') {
+			return this.logger.log(
+				`Reminder set ${pattern} for email with id: ${emailID}`,
+			);
+		}
+		this.logger.log(
+			`Reminder set ${pattern} at ${time} for email with id: ${emailID}`,
+		);
 	};
 
-	async addCronJob(reminder: ReminderModel, cron: string) {
-		const { id, email, message, subject, sendAt } = reminder;
-		const name = id.toString();
-
-		const job = new CronJob(cron, () => {
-			this.handleSend(id, email, message, subject);
-			this.schedulerRegistery.deleteCronJob(name);
-		});
-
-		this.schedulerRegistery.addCronJob(name, job);
-		job.start();
-		this.logReminderCreation(sendAt.toLocaleString(), id);
-	}
-
-	checkTimeout(name: string): boolean {
+	//Checks if the timeout exists and return true if it does
+	//returns false if an error is thrown
+	private checkTimeout(name: string): boolean {
 		try {
 			this.schedulerRegistery.getTimeout(name);
 			return true;
@@ -126,26 +154,65 @@ export class ReminderScheduler {
 		}
 	}
 
-	addTimeout(reminder: ReminderModel) {
-		const { id, email, message, subject, sendAt } = reminder;
-		const timeoutName = `Reminder - ${id.toString()}`;
+	//Handles recurring reminders
+	scheduleRecurring(reminder: ReminderModel) {
+		const cron = this.buildCronExpression(reminder.pattern, reminder);
+		this.addCronJob(reminder, cron);
+	}
+
+	//Handles one off reminders
+	scheduleOneOff(reminder: ReminderModel) {
+		const { sendAt, id, pattern } = reminder;
+		if (!sendAt) throw new BadRequestException('sendAt is not defined.');
+		const delayMs = sendAt.getTime() - Date.now();
+
+		switch (true) {
+			case delayMs <= MAX_TIMEOUT && delayMs > 0:
+				this.addTimeout(delayMs, reminder);
+				break;
+			case delayMs > MAX_TIMEOUT:
+				const cron = this.buildCronExpression(pattern, reminder);
+				this.addCronJob(reminder, cron);
+				break;
+			case delayMs <= 0:
+				this.logger.error(
+					`Reminder with id: ${id} could not be added. Time given is in the past.`,
+				);
+				break;
+		}
+	}
+
+	addTimeout(delayMs: number, reminder: ReminderModel) {
+		const { id, email, message, subject, sendAt, pattern } = reminder;
+		const timeoutName = `reminder-timeout-${id.toString()}`;
 
 		//If the timeout exists, then don't create it.
 		if (this.checkTimeout(timeoutName)) return;
-
-		const delay = sendAt.getTime() - Date.now();
-		if (delay <= 0) {
-			return this.logger.error(
-				`Timeout with id: ${id} could not be added. Time given is in the past.`,
-			);
-		}
 
 		//Timeout logic
 		const timeout = setTimeout(() => {
 			this.handleSend(id, email, message, subject);
 			this.schedulerRegistery.deleteTimeout(timeoutName);
-		}, delay);
+		}, delayMs);
 		this.schedulerRegistery.addTimeout(timeoutName, timeout);
-		this.logReminderCreation(sendAt.toLocaleString(), id);
+		this.logReminderCreation(sendAt.toLocaleString(), pattern, id);
+	}
+
+	async addCronJob(reminder: ReminderModel, cron: string) {
+		const { id, email, message, subject, sendAt, pattern, time } = reminder;
+		const name = `reminder-cron-${id}`;
+
+		const job = new CronJob(cron, () => {
+			this.handleSend(id, email, message, subject);
+			this.schedulerRegistery.deleteCronJob(name);
+		});
+
+		this.schedulerRegistery.addCronJob(name, job);
+		job.start();
+		this.logReminderCreation(
+			sendAt?.toLocaleString() || time || '',
+			pattern,
+			id,
+		);
 	}
 }

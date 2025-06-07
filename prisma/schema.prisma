@@ -19,7 +19,23 @@ model Reminder{
   email String
   subject String @default("Your scheduled reminder from Cron-Mailer")
   message String?
-  sendAt DateTime
+  sendAt DateTime?
+  pattern Pattern @default(once)
+  time String?
+  daysOfWeek Json?
+  interval Int?
+  dayOfMonth Int?
+  month Int?
   status String @default("pending")
   createdAt DateTime @default(now())
+}
+
+enum Pattern{
+  once
+  every_n_minutes
+  hourly
+  daily
+  weekly
+  monthly
+  yearly
 }

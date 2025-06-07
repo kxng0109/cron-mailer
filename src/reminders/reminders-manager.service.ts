@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Reminder as ReminderModel } from 'generated/prisma';
-import { CreateReminderDto } from './dto/create-reminder.dto';
+import { Pattern, Reminder as ReminderModel } from 'generated/prisma';
+import { CreateReminderDto } from './dto/';
 import { RemindersService } from './reminders.service';
 import { ReminderScheduler } from './schedulers/reminder.scheduler';
 
@@ -10,14 +10,25 @@ export class RemindersManagerService {
 		private readonly remindersService: RemindersService,
 		private readonly reminderScheduler: ReminderScheduler,
 	) {}
+
+	//Handle both creating of reminders and creating of cron jobs 
+	//or timers for said reminders
 	async createAndScheduleReminder(
 		data: CreateReminderDto,
 	): Promise<ReminderModel> {
-		let reminder: ReminderModel;
-		// if(data.sendAt){
-		reminder = await this.remindersService.createReminder(data);
-		// }
-		this.reminderScheduler.addTimeout(reminder);
+		const reminder = await this.remindersService.createReminder(data);		
+		if(reminder.pattern === Pattern.once){
+			this.reminderScheduler.scheduleOneOff(reminder)
+		}else{
+			this.reminderScheduler.scheduleRecurring(reminder)
+		}
 		return reminder;
+	}
+
+	async cancelReminder(id: number){
+		const reminder = await this.remindersService.cancelReminder({id});
+		if(reminder.pattern === Pattern.once){
+			
+		}
 	}
 }

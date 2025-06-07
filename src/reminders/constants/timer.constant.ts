@@ -1,0 +1,1 @@
+export const MAX_TIMEOUT = 2147483647;
