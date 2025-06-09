@@ -20,7 +20,7 @@ export class RemindersService {
 		});
 	}
 
-	private async getReminder(
+	async getReminder(
 		where: Prisma.ReminderWhereUniqueInput,
 	): Promise<Reminder | null> {
 		return await this.prismaService.reminder.findUnique({

@@ -24,6 +24,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^11.0.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -32,6 +33,7 @@
     "@nestjs/schedule": "^6.0.0",
     "@prisma/client": "^6.9.0",
     "@types/nodemailer": "^6.4.17",
+    "bullmq": "^5.53.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "cron": "^4.3.0",

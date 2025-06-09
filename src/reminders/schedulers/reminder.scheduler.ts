@@ -1,5 +1,7 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
+import { Queue } from 'bullmq';
 import { CronJob } from 'cron';
 import { Pattern, Reminder as ReminderModel } from 'generated/prisma';
 import { MailerService } from 'src/mailer/mailer.service';
@@ -14,6 +16,7 @@ export class ReminderScheduler {
 		private readonly reminderService: RemindersService,
 		private readonly mailerService: MailerService,
 		private schedulerRegistery: SchedulerRegistry,
+		@InjectQueue('reminders') private readonly remindersQueue: Queue,
 	) {}
 
 	addTimeout(delayMs: number, reminder: ReminderModel) {
@@ -30,7 +33,13 @@ export class ReminderScheduler {
 			this.schedulerRegistery.deleteTimeout(timeoutName);
 		}, delayMs);
 		this.schedulerRegistery.addTimeout(timeoutName, timeout);
-		this.logReminderCreation(sendAt.toLocaleString(), pattern, id);
+		this.logReminderCreation({
+			mechanism: 'timeout',
+			pattern,
+			id,
+			scheduledFor: sendAt,
+			delayMs,
+		});
 	}
 
 	addCronJob(
@@ -50,11 +59,39 @@ export class ReminderScheduler {
 
 		this.schedulerRegistery.addCronJob(name, job);
 		job.start();
-		this.logReminderCreation(
-			sendAt?.toLocaleString() || time || '',
+		if (sendAt) {
+			this.logReminderCreation({
+				mechanism: 'cron',
+				pattern,
+				id,
+				scheduledFor: sendAt,
+				cronExpression: cron,
+			});
+		} else {
+			this.logReminderCreation({
+				mechanism: 'cron',
+				pattern,
+				id,
+				cronExpression: cron,
+			});
+		}
+	}
+
+	async addQueue(reminder: ReminderModel, delay: number) {
+		const { id, sendAt, pattern, email, message, subject } = reminder;
+		assertDefined(sendAt);
+		await this.remindersQueue.add(
+			'send-reminder',
+			{ reminderId: id, email, message, subject, type: 'oneoff' },
+			{ delay, attempts: 2 },
+		);
+		this.logReminderCreation({
+			mechanism: 'queue',
 			pattern,
 			id,
-		);
+			scheduledFor: sendAt,
+			delayMs: delay,
+		});
 	}
 
 	buildCronExpression(pattern: string, reminder: ReminderModel): string {
@@ -99,8 +136,11 @@ export class ReminderScheduler {
 				cron = `${newTime} * * ${daysOfWeek.toString()}`;
 				break;
 			case Pattern.every_n_minutes:
-				assertDefined(newTime, 'time is not defined.');
-				cron = `*/${interval || newTime.slice(0, 2)} * * * *`;
+				if(!interval){
+					assertDefined(newTime, 'time is not defined.');
+					cron = `*/${newTime.slice(0, 2)} * * * *`;
+				}
+				cron = `*/${interval} * * * *`;
 				break;
 			case Pattern.monthly:
 				assertDefined(time);
@@ -147,58 +187,59 @@ export class ReminderScheduler {
 	async handleSend(
 		id: number,
 		to: string,
-		message,
+		message: string | null,
 		subject: string,
 		type: 'recurring' | 'oneoff',
-	) {
-		const info = await this.mailerService.sendMail(to, message, subject);
-		if (!info)
-			return this.logger.error(
-				`An error occurred while sending mail with id: ${id}.`,
-			);
+	): Promise<{ success: boolean; info: string; messageId: number }> {
+		message = message || 'You have a reminder';
 
-		const { accepted, rejected, messageId } = info;
-		if (rejected.length) {
-			this.logger.error(
-				`Email with address ${to} could not be sent because it was rejected by the server.`,
-			);
-			return await this.reminderService.updateReminderStatus({
+		try {
+			const info = await this.mailerService.sendMail(to, message, subject);
+			const { accepted, rejected, messageId } = info;
+			let processInfo: string;
+
+			if (rejected.length) {
+				processInfo = `Reminder ${id}: Email rejected by server to ${to}.`;
+				this.logger.error(processInfo);
+				await this.reminderService.updateReminderStatus({
+					data: {
+						status: 'failed',
+					},
+					where: { id },
+				});
+				throw new Error(processInfo);
+			}
+
+			if (accepted.length) {
+				processInfo = `Reminder ${id}: Email sent to ${to} (messageId = ${messageId}). `;
+				this.logger.log(processInfo);
+				if (type === 'oneoff') {
+					await this.reminderService.updateReminderStatus({
+						data: { status: 'completed' },
+						where: { id },
+					});
+				}
+				return { success: true, info: processInfo, messageId: id };
+			}
+
+			processInfo = `handleSend(${id}): malformed sendMail response`;
+			this.logger.error(processInfo);
+			await this.reminderService.updateReminderStatus({
+				where: { id },
+				data: { status: 'failed' },
+			});
+			throw new Error(processInfo);
+		} catch (err) {
+			this.logger.error(`handleSend(${id}): sendMail threw`, err);
+			await this.reminderService.updateReminderStatus({
 				data: {
 					status: 'failed',
 				},
 				where: { id },
 			});
-		} else if (accepted.length) {
-			this.logger.log(
-				`Email with subject: "${subject || 'no subject'}" sent to ${to} with id: ${messageId}.`,
-			);
-			if (type === 'oneoff') {
-				await this.reminderService.updateReminderStatus({
-					data: { status: 'completed' },
-					where: { id },
-				});
-			}
-		} else {
-			this.logger.error(
-				`An error occurred. Did not receive keys accepted and rejected for email with id: ${messageId}`,
-			);
+			throw err;
 		}
 	}
-
-	logReminderCreation = (
-		time: Date | string,
-		pattern: string,
-		emailID: number,
-	) => {
-		if (!time || time === '') {
-			return this.logger.log(
-				`Reminder set ${pattern} for email with id: ${emailID}`,
-			);
-		}
-		this.logger.log(
-			`Reminder set ${pattern} at ${time} for email with id: ${emailID}`,
-		);
-	};
 
 	deleteRecurring(reminder: ReminderModel) {
 		this.schedulerRegistery.deleteCronJob(`reminder-cron-${reminder.id}`);
@@ -218,19 +259,17 @@ export class ReminderScheduler {
 
 	//Handles one off reminders
 	scheduleOneOff(reminder: ReminderModel) {
-		const { sendAt, id, pattern } = reminder;
+		const { sendAt, id } = reminder;
 		assertDefined(sendAt);
 		const delayMs = sendAt.getTime() - Date.now();
 
 		switch (true) {
 			case delayMs <= MAX_TIMEOUT && delayMs > 0:
-				this.addTimeout(delayMs, reminder);
+				// this.addTimeout(delayMs, reminder);
+				this.addQueue(reminder, delayMs);
 				break;
 			case delayMs > MAX_TIMEOUT:
-				//Fix all this logic, it doesn't work.
-				//You'll need to result to using bullmq or something similar
-				const cron = this.buildCronExpression(pattern, reminder);
-				this.addCronJob(reminder, cron, 'oneoff');
+				this.addQueue(reminder, delayMs);
 				break;
 			case delayMs <= 0:
 				this.logger.error(
@@ -256,4 +295,27 @@ export class ReminderScheduler {
 		const { id, message, email, subject } = reminder;
 		this.handleSend(id, email, message, subject, 'oneoff');
 	}
+
+	private logReminderCreation = (args: {
+		mechanism: 'timeout' | 'cron' | 'queue';
+		pattern: string;
+		id: number;
+		scheduledFor?: Date;
+		cronExpression?: string;
+		delayMs?: number;
+	}) => {
+		const { mechanism, pattern, id, scheduledFor, cronExpression, delayMs } =
+			args;
+		const messageArray = [`ID=${id}`, `via=${mechanism}`, `pattern=${pattern}`];
+		if (scheduledFor) {
+			messageArray.push(`at=${scheduledFor.toLocaleString()}`);
+		}
+		if (cronExpression) {
+			messageArray.push(`cron=${cronExpression}`);
+		}
+		if (delayMs) {
+			messageArray.push(`delay=${delayMs}ms`);
+		}
+		this.logger.log(`Reminder scheduled - ${messageArray.join(' ')}`);
+	};
 }
