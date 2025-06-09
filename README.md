@@ -128,7 +128,7 @@ API available at: `http://localhost:3000`
 Start everything using Docker Compose:
 
 ```bash
-docker-compose up -d --build
+docker-compose up -d --build app
 ```
 
 Services:
