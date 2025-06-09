@@ -10,8 +10,8 @@ export class MailerService {
 	private transporter() {
 		return nodemailer.createTransport({
 			service: 'gmail',
-			host: 'smtp.gmail.com',
-			port: 587,
+			host: this.configService.get<string>("MAIL_HOST"),
+			port: this.configService.get<number>("MAIL_PORT"),
 			secure: false,
 			auth: {
 				user: this.configService.get<string>('MAIL_USERNAME'),

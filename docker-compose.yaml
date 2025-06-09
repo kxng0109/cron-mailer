@@ -1,5 +1,5 @@
 services:
-  dev-db:
+  postgres:
     image: postgres:16-alpine
     container_name: mailer-postgres-db
     restart: unless-stopped
@@ -10,10 +10,40 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks: 
-      - backend
+      - app-net
+      
+  redis:
+    image: redis:8-alpine
+    container_name: mailer-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - app-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailer-nest-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+      - postgres
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    networks:
+      - app-net
+
 
 volumes:
   pgdata:
 
 networks:
-  backend:
+  app-net:

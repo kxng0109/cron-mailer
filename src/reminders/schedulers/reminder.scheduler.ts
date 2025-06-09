@@ -191,7 +191,7 @@ export class ReminderScheduler {
 		subject: string,
 		type: 'recurring' | 'oneoff',
 	): Promise<{ success: boolean; info: string; messageId: number }> {
-		message = message || 'You have a reminder';
+		message = message || 'You have a reminder.';
 
 		try {
 			const info = await this.mailerService.sendMail(to, message, subject);

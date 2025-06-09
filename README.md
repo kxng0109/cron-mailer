@@ -1,98 +1,293 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Cron-Mailer: Scheduled Email Reminder Service
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+**Cron-Mailer** is a robust, production-ready NestJS application that enables one-off and recurring email reminders. Designed for high reliability and scalability, it leverages PostgreSQL for persistence, Redis and BullMQ for job queuing, and the native NestJS scheduler for cron and timeout tasks. Whether you need a simple reminder or complex recurring schedules, Cron-Mailer has you covered.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Table of Contents
+1. [Key Features](#key-features)
+2. [Project Structure](#project-structure)
+3. [Quick Start](#quick-start)
+4. [Docker Deployment](#docker-deployment)
+5. [API Usage & Examples](#api-usage--examples)
+6. [Reminder Patterns & Combinations](#reminder-patterns--combinations)
+7. [Status Dashboard & Logs](#status-dashboard--logs)
+8. [License & Contributing](#license--contributing)
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## Key Features
 
-```bash
-$ npm install
+- One-off Reminders: Schedule an email to be sent at a specific future date and time.
+- Recurring Reminders: Support for daily, weekly, monthly, and yearly schedules via CRON expressions.
+- Interval-Based: Send emails at arbitrary minute intervals (e.g., every 30 minutes).
+- Persistent Storage: PostgreSQL (via Prisma ORM) stores reminder definitions and statuses.
+- Reliable Queuing: BullMQ + Redis for long-delay and high-volume jobs, with retries and backoff.
+- In-Memory Scheduling: NestJS SchedulerRegistry for short delays (timeouts) and cron jobs.
+- Graceful Shutdown: Ensures no reminders are lost on service restart.
+- Null-Stripped Responses: Clean API JSON output with only relevant fields.
+- Dockerized: Ready-to-use Docker & Docker Compose setup for both development and production.
+
+---
+
+## Project Structure
+
+```text
+cron-mailer/
+├── prisma/                  # Database schema & migrations (Prisma)
+│   ├── migrations/          # Auto-generated migration files
+│   └── schema.prisma        # Data model and enums
+├── src/
+│   ├── app.module.ts        # Root module configuration
+│   ├── main.ts              # Application bootstrap
+│   ├── mailer/              # Email transport module (Nodemailer)
+│   │   ├── mailer.module.ts
+│   │   └── mailer.service.ts
+│   ├── reminders/           # Reminder domain and API
+│   │   ├── dto/             # Data Transfer Objects & validation
+│   │   │   └── create-reminder.dto.ts
+│   │   ├── utils/           # Reusable utilities (assert, strip-null)
+│   │   ├── schedulers/      # Cron & timeout scheduling logic
+│   │   ├── reminders.consumer.ts   # BullMQ worker for queued jobs
+│   │   ├── reminders-manager.service.ts  # Orchestration: persist → schedule
+│   │   ├── reminders.service.ts      # CRUD operations (Prisma)
+│   │   ├── reminders.controller.ts   # REST API endpoints
+│   │   └── reminders.module.ts       # Feature module
+│   └── prisma.module.ts     # Prisma client injection
+├── Dockerfile               # Multi-stage build for production
+├── docker-compose.yml       # Compose for Postgres, Redis, and App
+├── .dockerignore            # Files to exclude from Docker context
+├── README.md                # Project documentation
+├── package.json             # NPM scripts & dependencies
+├── tsconfig.json            # TypeScript configuration
+├── LICENSE            # MIT License
+├── .env.example            # Example of the required environment variables
+└── .env                     # Environment variables (create this on your own. Use the '.env.example' as your guide.)
 ```
 
-## Compile and run the project
+---
+
+## Quick Start
+
+### Prerequisites
+- Node.js v22+ (LTS preferrably)
+- Docker and Docker Compose
+- PostgreSQL and Redis (local or via Docker)
+
+### Clone & Install
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone https://github.com/kxng0109/cron-mailer.git
+cd cron-mailer
+npm install
 ```
 
-## Run tests
+### Environment Configuration
+
+Copy and edit the example `.env.example` file:
+
+```env
+DATABASE_URL=postgres[ql]://[username[:password]@][host[:port],]/database[?parameter_list]
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+POSTGRES_DB=
+REDIS_HOST=
+REDIS_PORT=
+MAIL_HOST=
+MAIL_PORT=
+MAIL_USERNAME=
+MAIL_PASSWORD=
+```
+<b>Note: username, password and database should be the same value as POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB respectively.</b> 
+
+### Run Locally (Non-Docker)
 
 ```bash
-# unit tests
-$ npm run test
+# Start Postgres and Redis manually or via Docker:
+docker-compose up -d postgres redis
 
-# e2e tests
-$ npm run test:e2e
+# Run database migrations
+npx prisma migrate deploy
 
-# test coverage
-$ npm run test:cov
+# Start the app in development mode
+npm run start:dev
+
+# Or to run the app normally
+npm run build
+npm run start
 ```
 
-## Deployment
+API available at: `http://localhost:3000`
+<b>Note: The base url for all endpoints is `http://localhost:3000/api/`</b>
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+---
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Docker Deployment
+
+Start everything using Docker Compose:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker-compose up -d --build
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Services:
+- App: `http://localhost:3000`
+- Postgres: `localhost:5432`
+- Redis: `localhost:6379`
 
-## Resources
+To view logs:
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+docker-compose logs -f app
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+## API Usage & Examples
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### One-Off Reminder
 
-## Stay in touch
+```http
+POST /reminders
+Content-Type: application/json
+{
+  "email": "john@doe.com",
+  "message": "Time to check your quarterly report!",
+  "pattern" : "once",
+  "sendAt": "2025-06-10T10:00:00Z"
+}
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### Every N Minutes
 
-## License
+```http
+POST /reminders
+{
+  "email": "john@doe.com",
+  "message": "Your every 40th minute of the hour reminder",
+  "pattern": "every_n_minutes",
+  "interval": 40,
+}
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```http
+POST /reminders
+{
+  "email": "john@doe.com",
+  "message": "Your every 40th minute of the hour reminder",
+  "pattern": "every_n_minutes",
+  "time": "00:40"
+}
+```
+
+### Daily Reminder
+
+```http
+POST /reminders
+{
+  "email": "joe@doe.com",
+  "message": "Daily standup check-in",
+  "pattern": "daily",
+  "time": "09:00"
+}
+```
+
+### Hourly Reminder
+
+```http
+POST /reminders
+{
+  "email": "joe@doe.com",
+  "message": "Daily standup check-in",
+  "pattern": "hourly",
+  "time": "09:00"
+}
+```
+
+### Weekly Reminder
+
+```http
+POST /reminders
+{
+  "email": "john@doe.com",
+  "message": "Weekly standup check-in",
+  "pattern": "weekly",
+  "time": "10:00",
+  "daysOfWeek": [1,3,5]
+}
+```
+
+### Monthly Reminder
+
+```http
+POST /reminders
+{
+  "email": "john@doe.com",
+  "message": "Monthly standup check-in",
+  "pattern": "monthly",
+  "time": "10:00",
+  "dayOfMonth": 10
+}
+```
+### Yearly Reminders
+
+```http
+POST /reminders
+{
+  "email": "john@doe.com",
+  "message": "Yearly standup check-in",
+  "pattern": "yearly",
+  "time": "10:00",
+  "dayOfMonth": 10,
+  "month": 6
+}
+```
+
+---
+
+## Reminder Patterns & Combinations
+
+### once
+- Sends a one-time email at the `sendAt` timestamp.
+
+### every_n_minutes
+- Requires `interval` (in minutes) and `time` (start time of day).
+- Repeats every N minutes from the specified start time.
+
+### hourly
+- Requires `minute` field (e.g., 15 for every hour at :15).
+
+### daily
+- Requires `time` (e.g., "14:30").
+- Sends every day at that time.
+
+### weekly
+- Requires `time` and `daysOfWeek` (0=Sun...6=Sat).
+- Sends weekly on specified days.
+
+### monthly
+- Requires `dayOfMonth` (1–31) and `time`.
+- Sends on the specified day every month.
+
+### yearly
+- Requires `month` (1–12), `dayOfMonth`, and `time`.
+- Sends yearly on that date.
+
+> Combinations are validated at the DTO layer. Missing or conflicting fields will return a 400 error.
+> Subject and message fields are optional, though recommended. If not provided, the default field "Your scheduled reminder from Cron-Mailer" and "You have a reminder." will be used for subject and message field, respectively.
+
+---
+
+## Status Dashboard & Logs
+
+- List pending reminders: `GET /reminders?status=pending`
+- List all reminders: `GET /reminders`
+- Cancel a reminder: `DELETE /reminders/:id`
+
+Logs use NestJS(logger) with clear metadata for status, source (timeout/cron/queue), and timestamps.
+
+---
+
+## License & Contributing
+
+This project is MIT-licensed. Contributions and feedback are welcome!

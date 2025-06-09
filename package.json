@@ -1,8 +1,8 @@
 {
   "name": "cron-mailer",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "A NestJS-based service that sends scheduled email reminders using BullMQ and Redis. Reminders can be one-time or recurring, and the service uses PostgreSQL for persistent storage.",
+  "author": "Joshua Ike",
   "private": true,
   "license": "MIT",
   "scripts": {
@@ -10,9 +10,10 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "prisma:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset",
-    "db:start": "docker-compose up -d",
+    "db:start": "docker-compose up -d postgres redis",
     "db:stop": "docker-compose down",
     "start": "nest start",
+    "prestart:dev": "prisma migrate deploy",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
