@@ -11,8 +11,9 @@
 4. [Docker Deployment](#docker-deployment)
 5. [API Usage & Examples](#api-usage--examples)
 6. [Reminder Patterns & Combinations](#reminder-patterns--combinations)
-7. [Status Dashboard & Logs](#status-dashboard--logs)
-8. [License & Contributing](#license--contributing)
+7. [Testing](#testing)
+8. [Status Dashboard & Logs](#status-dashboard--logs)
+9. [License & Contributing](#license--contributing)
 
 ---
 
@@ -274,9 +275,34 @@ POST /reminders
 - Sends yearly on that date.
 
 > Combinations are validated at the DTO layer. Missing or conflicting fields will return a 400 error.
+
 > Subject and message fields are optional, though recommended. If not provided, the default field "Your scheduled reminder from Cron-Mailer" and "You have a reminder." will be used for subject and message field, respectively.
 
 ---
+
+## Testing
+
+### Unit Tests
+
+* **Framework**: Jest
+* **Scope**: Isolate services, mock dependencies (SchedulerRegistry, Queue)
+* **Location**: `*.spec.ts` files alongside source modules
+
+### End-to-End Tests
+
+* **Framework**: Jest + PactumJS
+* **Scope**: Full HTTP → DB → scheduling → job queue flow
+* **Setup**: Starts Nest application on port `3001`, clears Redis, executes HTTP calls
+
+```bash
+npm run test        # run all unit tests
+npm run test:e2e    # run E2E tests
+```
+
+<b>Note: Create a `.env.test` files for your test environment variables. A separate database and redis server is used for tests. Check `docker.compose.yaml` file to get an idea. </b>
+
+---
+
 
 ## Status Dashboard & Logs
 
