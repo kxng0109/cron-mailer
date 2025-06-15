@@ -306,7 +306,7 @@ npm run test:e2e    # run E2E tests
 
 ## Status Dashboard & Logs
 
-- List pending reminders: `GET /reminders?status=pending`
+- List pending reminders: `GET /reminders/pending`
 - List all reminders: `GET /reminders`
 - Cancel a reminder: `DELETE /reminders/:id`
 
